@@ -114,6 +114,17 @@
   .dg-sub { fill: var(--muted); font: 12px var(--mono); }
   .dg-on { fill: #ffffff; font: 700 14px -apple-system, "Segoe UI", Roboto, sans-serif; }
   .dg-br { fill: var(--muted); font: italic 12px -apple-system, "Segoe UI", Roboto, sans-serif; }
+  /* sequence diagram */
+  .sq-life { stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 4 5; }
+  .sq-ret { stroke: var(--muted); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+  .sq-edge { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  .sq-edge-accent { stroke: var(--accent); stroke-width: 2; fill: none; }
+  .sq-head { fill: var(--muted); }
+  .sq-head-accent { fill: var(--accent); }
+  .sq-msg { fill: var(--fg); font: 500 12px -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .sq-msg-accent { fill: var(--accent); font: 700 12px -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .sq-divline { stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 2 4; }
+  .sq-div { fill: var(--accent); font: italic 12px -apple-system, "Segoe UI", Roboto, sans-serif; }
 </style>
 </head>
 <body>
@@ -285,6 +296,94 @@
     </div>
   </div>
 </div>
+
+<h3>Session commit — sequence</h3>
+<figure class="diagram">
+<svg viewBox="0 0 800 486" role="img"
+     aria-label="Sequence: the app creates a staged session on PackageInstaller, opens it, writes the APK and commits with a status IntentSender; the platform stages and verifies, then broadcasts STATUS_SUCCESS to the result receiver; on reboot the platform applies the staged session and the package is installed.">
+  <defs>
+    <marker id="sqArrow" markerWidth="10" markerHeight="10" refX="8" refY="3"
+            orient="auto" markerUnits="userSpaceOnUse">
+      <path class="sq-head" d="M0,0 L8,3 L0,6 Z"/>
+    </marker>
+    <marker id="sqArrowA" markerWidth="11" markerHeight="11" refX="8" refY="3"
+            orient="auto" markerUnits="userSpaceOnUse">
+      <path class="sq-head-accent" d="M0,0 L8,3 L0,6 Z"/>
+    </marker>
+  </defs>
+
+  <!-- participant headers -->
+  <g>
+    <rect class="dg-box" x="20"  y="18" width="120" height="42" rx="9"/>
+    <text class="dg-t" x="80"  y="37" text-anchor="middle">InstallActivity</text>
+    <text class="dg-sub" x="80" y="52" text-anchor="middle">+ Helper</text>
+
+    <rect class="dg-box" x="190" y="18" width="120" height="42" rx="9"/>
+    <text class="dg-t" x="250" y="37" text-anchor="middle">Package</text>
+    <text class="dg-t" x="250" y="52" text-anchor="middle">Installer</text>
+
+    <rect class="dg-box" x="350" y="18" width="120" height="42" rx="9"/>
+    <text class="dg-t" x="410" y="43" text-anchor="middle">Session</text>
+
+    <rect class="dg-box" x="500" y="18" width="120" height="42" rx="9"/>
+    <text class="dg-t" x="560" y="37" text-anchor="middle">Platform</text>
+    <text class="dg-sub" x="560" y="52" text-anchor="middle">(staging)</text>
+
+    <rect class="dg-box" x="660" y="18" width="120" height="42" rx="9"/>
+    <text class="dg-t" x="720" y="37" text-anchor="middle">Result</text>
+    <text class="dg-t" x="720" y="52" text-anchor="middle">Receiver</text>
+  </g>
+
+  <!-- lifelines -->
+  <line class="sq-life" x1="80"  y1="60" x2="80"  y2="458"/>
+  <line class="sq-life" x1="250" y1="60" x2="250" y2="458"/>
+  <line class="sq-life" x1="410" y1="60" x2="410" y2="458"/>
+  <line class="sq-life" x1="560" y1="60" x2="560" y2="458"/>
+  <line class="sq-life" x1="720" y1="60" x2="720" y2="458"/>
+
+  <!-- 1. createSession -->
+  <text class="sq-msg" x="165" y="92" text-anchor="middle">createSession(staged)</text>
+  <line class="sq-edge" x1="80" y1="98" x2="250" y2="98" marker-end="url(#sqArrow)"/>
+  <text class="sq-msg" x="165" y="118" text-anchor="middle">sessionId</text>
+  <line class="sq-ret" x1="250" y1="124" x2="80" y2="124" marker-end="url(#sqArrow)"/>
+
+  <!-- 2. openSession -->
+  <text class="sq-msg" x="165" y="150" text-anchor="middle">openSession(id)</text>
+  <line class="sq-edge" x1="80" y1="156" x2="250" y2="156" marker-end="url(#sqArrow)"/>
+  <text class="sq-msg" x="245" y="178" text-anchor="middle">Session handle</text>
+  <line class="sq-ret" x1="250" y1="184" x2="80" y2="184" marker-end="url(#sqArrow)"/>
+
+  <!-- 3. write APK -->
+  <text class="sq-msg" x="245" y="210" text-anchor="middle">openWrite · write APK · fsync</text>
+  <line class="sq-edge" x1="80" y1="216" x2="410" y2="216" marker-end="url(#sqArrow)"/>
+
+  <!-- 4. commit (accent) -->
+  <text class="sq-msg-accent" x="245" y="244" text-anchor="middle">commit(status IntentSender)</text>
+  <line class="sq-edge-accent" x1="80" y1="250" x2="410" y2="250" marker-end="url(#sqArrowA)"/>
+
+  <!-- 5. stage + verify -->
+  <text class="sq-msg" x="485" y="278" text-anchor="middle">stage + verify</text>
+  <line class="sq-edge" x1="410" y1="284" x2="560" y2="284" marker-end="url(#sqArrow)"/>
+
+  <!-- 6. status broadcast (async) -->
+  <text class="sq-msg" x="640" y="312" text-anchor="middle">STATUS_SUCCESS</text>
+  <text class="sq-sub sq-msg" x="640" y="328" text-anchor="middle" style="font-weight:400">(pending reboot)</text>
+  <line class="sq-ret" x1="560" y1="334" x2="720" y2="334" marker-end="url(#sqArrow)"/>
+
+  <!-- reboot divider -->
+  <line class="sq-divline" x1="40" y1="366" x2="760" y2="366"/>
+  <rect class="dg-box-accent" x="356" y="354" width="88" height="24" rx="12"/>
+  <text class="sq-div" x="400" y="371" text-anchor="middle">reboot</text>
+
+  <!-- 7. apply staged (self on Platform) -->
+  <text class="sq-msg" x="628" y="398" text-anchor="middle">apply staged session</text>
+  <path class="sq-edge" d="M560,404 h44 v18 h-44" marker-end="url(#sqArrow)"/>
+
+  <!-- 8. installed -->
+  <text class="sq-msg-accent" x="560" y="448" text-anchor="middle">package installed</text>
+</svg>
+<figcaption>Commit sequence: staged session is verified, acknowledged as pending, then applied on reboot.</figcaption>
+</figure>
 
 <h2>The drop folder</h2>
 <p>Default location (needs no storage permission, always readable by the app):</p>
