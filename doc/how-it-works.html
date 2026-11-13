@@ -125,6 +125,15 @@
   .sq-msg-accent { fill: var(--accent); font: 700 12px -apple-system, "Segoe UI", Roboto, sans-serif; }
   .sq-divline { stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 2 4; }
   .sq-div { fill: var(--accent); font: italic 12px -apple-system, "Segoe UI", Roboto, sans-serif; }
+  /* state diagram */
+  .st-fail { fill: var(--card); stroke: var(--warn); stroke-width: 1.5; }
+  .st-ring { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+  .st-dot { fill: var(--muted); }
+  .st-edge { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  .st-edge-accent { stroke: var(--accent); stroke-width: 2; fill: none; }
+  .st-lbl { fill: var(--muted); font: 11.5px -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .st-lbl-accent { fill: var(--accent); font: 600 11.5px -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .st-warn { fill: var(--warn); font: 600 13px -apple-system, "Segoe UI", Roboto, sans-serif; }
 </style>
 </head>
 <body>
@@ -383,6 +392,82 @@
   <text class="sq-msg-accent" x="560" y="448" text-anchor="middle">package installed</text>
 </svg>
 <figcaption>Commit sequence: staged session is verified, acknowledged as pending, then applied on reboot.</figcaption>
+</figure>
+
+<h3>Session lifecycle — states</h3>
+<figure class="diagram">
+<svg viewBox="0 0 780 496" role="img"
+     aria-label="State diagram: a session goes Created, Writing, Committed, Verifying, then Staged (pending reboot) and finally Installed on reboot. From Writing or Verifying the session can instead end in Failed / Abandoned.">
+  <defs>
+    <marker id="stArrow" markerWidth="10" markerHeight="10" refX="8" refY="3"
+            orient="auto" markerUnits="userSpaceOnUse">
+      <path class="dg-head" d="M0,0 L8,3 L0,6 Z"/>
+    </marker>
+    <marker id="stArrowA" markerWidth="11" markerHeight="11" refX="8" refY="3"
+            orient="auto" markerUnits="userSpaceOnUse">
+      <path class="sq-head-accent" d="M0,0 L8,3 L0,6 Z"/>
+    </marker>
+  </defs>
+
+  <!-- initial -->
+  <circle class="st-dot" cx="300" cy="26" r="7"/>
+  <line class="st-edge" x1="300" y1="33" x2="300" y2="44" marker-end="url(#stArrow)"/>
+  <text class="st-lbl" x="312" y="42" text-anchor="start">createSession()</text>
+
+  <!-- Created -->
+  <rect class="dg-box" x="190" y="48" width="220" height="44" rx="11"/>
+  <text class="dg-t" x="300" y="68" text-anchor="middle">Created</text>
+  <text class="dg-sub" x="300" y="84" text-anchor="middle">session id allocated</text>
+  <line class="st-edge" x1="300" y1="92" x2="300" y2="118" marker-end="url(#stArrow)"/>
+  <text class="st-lbl" x="312" y="110" text-anchor="start">openSession() · openWrite()</text>
+
+  <!-- Writing -->
+  <rect class="dg-box" x="190" y="122" width="220" height="44" rx="11"/>
+  <text class="dg-t" x="300" y="142" text-anchor="middle">Writing</text>
+  <text class="dg-sub" x="300" y="158" text-anchor="middle">APK bytes streamed · fsync</text>
+  <line class="st-edge-accent" x1="300" y1="166" x2="300" y2="192" marker-end="url(#stArrowA)"/>
+  <text class="st-lbl-accent" x="312" y="184" text-anchor="start">commit(IntentSender)</text>
+
+  <!-- Committed -->
+  <rect class="dg-box" x="190" y="196" width="220" height="44" rx="11"/>
+  <text class="dg-t" x="300" y="216" text-anchor="middle">Committed</text>
+  <text class="dg-sub" x="300" y="232" text-anchor="middle">handed to the platform</text>
+  <line class="st-edge" x1="300" y1="240" x2="300" y2="266" marker-end="url(#stArrow)"/>
+  <text class="st-lbl" x="312" y="258" text-anchor="start">stage + verify</text>
+
+  <!-- Verifying -->
+  <rect class="dg-box" x="190" y="270" width="220" height="44" rx="11"/>
+  <text class="dg-t" x="300" y="290" text-anchor="middle">Verifying</text>
+  <text class="dg-sub" x="300" y="306" text-anchor="middle">signature + integrity checks</text>
+  <line class="st-edge" x1="300" y1="314" x2="300" y2="340" marker-end="url(#stArrow)"/>
+  <text class="st-lbl" x="312" y="332" text-anchor="start">STATUS_SUCCESS</text>
+
+  <!-- Staged -->
+  <rect class="dg-box dg-box-accent" x="190" y="344" width="220" height="48" rx="11"/>
+  <text class="dg-t" x="300" y="364" text-anchor="middle">Staged — ready</text>
+  <text class="dg-sub" x="300" y="381" text-anchor="middle">persists across reboot (not live)</text>
+  <line class="st-edge-accent" x1="300" y1="392" x2="300" y2="420" marker-end="url(#stArrowA)"/>
+  <text class="st-lbl-accent" x="312" y="410" text-anchor="start">reboot applies</text>
+
+  <!-- Installed (final) -->
+  <rect class="st-ring" x="184" y="418" width="232" height="56" rx="14"/>
+  <rect class="dg-box-ok" x="190" y="424" width="220" height="44" rx="11"/>
+  <text class="dg-on" x="300" y="451" text-anchor="middle">Installed</text>
+
+  <!-- Failed / Abandoned (terminal) -->
+  <rect class="st-fail" x="560" y="196" width="190" height="52" rx="12"/>
+  <text class="dg-t" x="655" y="217" text-anchor="middle">Failed /</text>
+  <text class="dg-t" x="655" y="234" text-anchor="middle">Abandoned</text>
+
+  <!-- Writing -> Failed -->
+  <path class="st-edge" d="M410,144 C500,150 540,186 558,206" marker-end="url(#stArrow)"/>
+  <text class="st-lbl" x="500" y="140" text-anchor="middle">abandon() · write error</text>
+
+  <!-- Verifying -> Failed -->
+  <path class="st-edge" d="M410,292 C500,286 540,258 558,240" marker-end="url(#stArrow)"/>
+  <text class="st-lbl" x="500" y="300" text-anchor="middle">STATUS_FAILURE_*</text>
+</svg>
+<figcaption>Session states from creation to install, with the failure/abandon path.</figcaption>
 </figure>
 
 <h2>The drop folder</h2>
