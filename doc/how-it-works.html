@@ -100,6 +100,20 @@
   .ok { color: var(--ok); font-weight: 600; }
   footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13.5px; }
   a { color: var(--accent); }
+
+  /* flow diagram */
+  figure.diagram { margin: 20px 0 8px; }
+  figure.diagram svg { width: 100%; height: auto; display: block; }
+  figcaption { color: var(--muted); font-size: 13px; text-align: center; margin-top: 8px; }
+  .dg-box { fill: var(--card); stroke: var(--border); stroke-width: 1.5; }
+  .dg-box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+  .dg-box-ok { fill: var(--accent); stroke: var(--accent); stroke-width: 1.5; }
+  .dg-edge { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+  .dg-head { fill: var(--muted); }
+  .dg-t { fill: var(--fg); font: 600 13px -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .dg-sub { fill: var(--muted); font: 12px var(--mono); }
+  .dg-on { fill: #ffffff; font: 700 14px -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .dg-br { fill: var(--muted); font: italic 12px -apple-system, "Segoe UI", Roboto, sans-serif; }
 </style>
 </head>
 <body>
@@ -154,6 +168,76 @@
 </div>
 
 <h2>The end-to-end flow</h2>
+
+<figure class="diagram">
+<svg viewBox="0 0 760 712" role="img"
+     aria-label="Flow: upstream agent downloads signed APKs into the drop folder; on launch the app scans it; one APK becomes a single staged session, several become a multi-package staged session; the bytes are committed silently; status returns as staged and pending reboot; on reboot the packages are installed.">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3"
+            orient="auto" markerUnits="userSpaceOnUse">
+      <path class="dg-head" d="M0,0 L8,3 L0,6 Z"/>
+    </marker>
+  </defs>
+
+  <!-- A: upstream agent -->
+  <rect class="dg-box" x="180" y="20" width="400" height="56" rx="12"/>
+  <text class="dg-t" x="380" y="44" text-anchor="middle">Upstream agent (OTA / fleet / USB)</text>
+  <text class="dg-sub" x="380" y="63" text-anchor="middle">downloads signed APKs</text>
+  <path class="dg-edge" d="M380,76 L380,104" marker-end="url(#arrow)"/>
+
+  <!-- B: drop folder -->
+  <rect class="dg-box" x="150" y="110" width="460" height="56" rx="12"/>
+  <text class="dg-t" x="380" y="134" text-anchor="middle">Drop folder</text>
+  <text class="dg-sub" x="380" y="153" text-anchor="middle">/…/files/staged-apks/</text>
+  <path class="dg-edge" d="M380,166 L380,194" marker-end="url(#arrow)"/>
+
+  <!-- C: launch + scan -->
+  <rect class="dg-box" x="190" y="200" width="380" height="56" rx="12"/>
+  <text class="dg-t" x="380" y="224" text-anchor="middle">App launches → scan folder</text>
+  <text class="dg-sub" x="380" y="243" text-anchor="middle">PackageInstallerHelper.listApks()</text>
+
+  <!-- split -->
+  <text class="dg-br" x="380" y="280" text-anchor="middle">how many APKs?</text>
+  <path class="dg-edge" d="M330,256 C250,278 230,286 230,300" marker-end="url(#arrow)"/>
+  <path class="dg-edge" d="M430,256 C530,278 540,286 540,300" marker-end="url(#arrow)"/>
+
+  <!-- L: single -->
+  <rect class="dg-box dg-box-accent" x="70" y="304" width="300" height="70" rx="12"/>
+  <text class="dg-br" x="220" y="298" text-anchor="middle">one</text>
+  <text class="dg-t" x="220" y="333" text-anchor="middle">Single staged session</text>
+  <text class="dg-sub" x="220" y="352" text-anchor="middle">setStaged(true)</text>
+
+  <!-- R: multi -->
+  <rect class="dg-box dg-box-accent" x="390" y="304" width="300" height="70" rx="12"/>
+  <text class="dg-br" x="540" y="298" text-anchor="middle">several</text>
+  <text class="dg-t" x="540" y="327" text-anchor="middle">Multi-package staged</text>
+  <text class="dg-sub" x="540" y="346" text-anchor="middle">parent + child per APK</text>
+  <text class="dg-sub" x="540" y="363" text-anchor="middle">setMultiPackage()</text>
+
+  <!-- merge -->
+  <path class="dg-edge" d="M220,374 C220,392 300,398 380,400" marker-end="url(#arrow)"/>
+  <path class="dg-edge" d="M540,374 C540,392 460,398 382,400" marker-end="url(#arrow)"/>
+
+  <!-- E: commit -->
+  <rect class="dg-box" x="150" y="404" width="460" height="58" rx="12"/>
+  <text class="dg-t" x="380" y="429" text-anchor="middle">Stream APK bytes → session.commit()</text>
+  <text class="dg-sub" x="380" y="449" text-anchor="middle">USER_ACTION_NOT_REQUIRED · silent</text>
+  <path class="dg-edge" d="M380,462 L380,490" marker-end="url(#arrow)"/>
+
+  <!-- F: status -->
+  <rect class="dg-box" x="150" y="496" width="460" height="58" rx="12"/>
+  <text class="dg-t" x="380" y="521" text-anchor="middle">InstallResultReceiver → STATUS_SUCCESS</text>
+  <text class="dg-sub" x="380" y="541" text-anchor="middle">staged · pending reboot (not live yet)</text>
+  <path class="dg-edge" d="M380,554 L380,590" marker-end="url(#arrow)"/>
+  <text class="dg-br" x="398" y="577" text-anchor="start">reboot</text>
+
+  <!-- G: installed -->
+  <rect class="dg-box dg-box-ok" x="210" y="596" width="340" height="60" rx="12"/>
+  <text class="dg-on" x="380" y="632" text-anchor="middle">Packages installed on boot</text>
+</svg>
+<figcaption>End-to-end staged-install flow, from pre-downloaded APK to install on reboot.</figcaption>
+</figure>
+
 <div class="flow">
   <div class="step">
     <div class="num">1</div>
