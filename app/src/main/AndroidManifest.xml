@@ -24,10 +24,6 @@
     <uses-permission android:name="android.permission.DELETE_PACKAGES"
         tools:ignore="ProtectedPermissions" />
 
-    <!-- Reading the APK file the user picks. -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-
     <!-- See all installed packages (to report status, verify replace, etc.). -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
@@ -52,14 +48,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <!-- Allow being opened on an APK file as a VIEW target. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="content" />
-                <data android:scheme="file" />
-                <data android:mimeType="application/vnd.android.package-archive" />
             </intent-filter>
         </activity>
 

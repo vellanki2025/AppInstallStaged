@@ -4,92 +4,160 @@ import android.content.Context
 import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
-import java.io.InputStream
+import java.io.File
 
 /**
- * Wraps the PackageInstaller Session API to perform a STAGED, silent install.
+ * Staged install via the PackageInstaller Session API.
  *
- * "Staged" (PackageInstaller.SessionParams.setStaged(true)) means the session is
- * written to disk and then committed to be applied atomically on the next reboot.
- * Staged sessions are the mechanism behind APEX and rebootless/rebootful system
- * updates, and require a privileged caller. Combined with the INSTALL_PACKAGES
- * platform permission the commit proceeds with no user confirmation UI.
+ * "Staged" (SessionParams.setStaged(true)) writes the session to disk and commits
+ * it to apply **atomically on the next reboot** — the mechanism behind APEX and
+ * system module updates, and the right model for an Automotive (AAOS) image where
+ * packages should land during a controlled reboot rather than live at runtime.
  *
- * Requires API 29+ for setStaged().
+ * When several APKs are present they are staged together as children of a single
+ * MULTI-PACKAGE staged session, so they all apply on the same reboot as a unit.
+ *
+ * Requires API 29+ (setStaged) and system privilege (INSTALL_PACKAGES) for the
+ * silent, no-confirmation commit.
  */
 object PackageInstallerHelper {
 
     private const val TAG = "PackageInstallerHelper"
 
+    /** Sub-folder inside the drop directory that this app reads APKs from. */
+    const val APK_SUBDIR = "staged-apks"
+
     /**
-     * Create a staged session, stream the APK bytes into it, and commit.
+     * Optional absolute override for the APK drop directory. Leave null to use the
+     * app-specific external files dir (no storage permission required):
      *
-     * @param context     any context; the application context is used internally.
-     * @param apkStream    an open stream of the APK to install (caller closes nothing;
-     *                     this method consumes and closes the session side).
-     * @param apkSizeBytes known size of the APK, or -1 if unknown.
-     * @param displayName  label stored on the session (for logging/diagnostics).
-     * @param staged       true for a staged (reboot-applied) session; false for an
-     *                     ordinary immediate session. Defaults to true per request.
-     * @return the session id that was committed.
+     *   /sdcard/Android/data/com.example.appinstall/files/staged-apks/
+     *
+     * For a provisioned vendor location set e.g. "/data/vendor/appinstall/apks"
+     * (the directory must exist and be readable by this app's SELinux domain).
      */
-    fun installStaged(
-        context: Context,
-        apkStream: InputStream,
-        apkSizeBytes: Long = -1L,
-        displayName: String = "staged-install",
-        staged: Boolean = true,
-    ): Int {
+    var apkDirOverride: String? = null
+
+    /** The directory APKs are read from, created if missing. */
+    fun stagedApkDir(context: Context): File {
+        val dir = apkDirOverride?.let { File(it) }
+            ?: File(context.getExternalFilesDir(null), APK_SUBDIR)
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    /** All *.apk files in the drop directory, sorted by name for deterministic order. */
+    fun listApks(context: Context): List<File> =
+        stagedApkDir(context)
+            .listFiles { f -> f.isFile && f.name.endsWith(".apk", ignoreCase = true) }
+            ?.sortedBy { it.name }
+            ?: emptyList()
+
+    /**
+     * Stage every APK in [files] for install on next reboot.
+     *
+     * One file  -> a single staged session.
+     * Many files -> one multi-package staged parent with a child per APK.
+     *
+     * @return the id of the committed (parent) staged session.
+     */
+    fun installFilesStaged(context: Context, files: List<File>): Int {
+        require(files.isNotEmpty()) { "No APKs to stage" }
         val appContext = context.applicationContext
-        val installer = appContext.packageManager.packageInstaller
-
-        val params = PackageInstaller.SessionParams(
-            PackageInstaller.SessionParams.MODE_FULL_INSTALL
-        ).apply {
-            setAppPackageName(null) // let the installer read it from the APK
-            if (apkSizeBytes > 0) setSize(apkSizeBytes)
-
-            if (staged && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // The staged flag — the core of a "staged session".
-                setStaged(true)
-            }
-
-            // Replace an existing package of the same name without asking.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                setInstallLocation(PackageInfoCompat.INSTALL_LOCATION_AUTO)
-            }
-
-            // On privileged builds, request that no user action be required.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-            }
+        return if (files.size == 1) {
+            stageSingle(appContext, files.first())
+        } else {
+            stageMultiPackage(appContext, files)
         }
+    }
 
+    // ---- single staged session -------------------------------------------------
+
+    private fun stageSingle(appContext: Context, apk: File): Int {
+        val installer = appContext.packageManager.packageInstaller
+        val params = baseParams(staged = true, multiPackage = false, size = apk.length())
         val sessionId = installer.createSession(params)
-        Log.i(TAG, "Created session $sessionId (staged=$staged, displayName=$displayName)")
+        Log.i(TAG, "Single staged session $sessionId for ${apk.name}")
 
         var session: PackageInstaller.Session? = null
         try {
             session = installer.openSession(sessionId)
-            writeApk(session, apkStream)
-
-            val statusIntent = InstallResultReceiver.buildStatusIntent(appContext, sessionId)
-            session.commit(statusIntent.intentSender)
-            Log.i(TAG, "Committed session $sessionId; awaiting status broadcast")
+            writeApk(session, apk)
+            val status = InstallResultReceiver.buildStatusIntent(appContext, sessionId)
+            session.commit(status.intentSender)
+            Log.i(TAG, "Committed staged session $sessionId; applies on reboot")
             return sessionId
         } catch (t: Throwable) {
-            Log.e(TAG, "Install failed for session $sessionId, abandoning", t)
-            try { session?.abandon() } catch (_: Throwable) { /* best effort */ }
+            Log.e(TAG, "Staging failed for session $sessionId, abandoning", t)
+            try { session?.abandon() } catch (_: Throwable) {}
             throw t
         } finally {
-            try { session?.close() } catch (_: Throwable) { /* best effort */ }
+            try { session?.close() } catch (_: Throwable) {}
         }
     }
 
-    private fun writeApk(session: PackageInstaller.Session, apkStream: InputStream) {
+    // ---- multi-package staged session -----------------------------------------
+
+    private fun stageMultiPackage(appContext: Context, files: List<File>): Int {
+        val installer = appContext.packageManager.packageInstaller
+
+        // Parent carries the staged + multi-package flags; children are plain sessions.
+        val parentParams = baseParams(staged = true, multiPackage = true, size = -1L)
+        val parentId = installer.createSession(parentParams)
+        Log.i(TAG, "Multi-package staged parent session $parentId for ${files.size} APKs")
+
+        var parent: PackageInstaller.Session? = null
+        try {
+            parent = installer.openSession(parentId)
+            for (apk in files) {
+                val childParams = baseParams(staged = false, multiPackage = false, size = apk.length())
+                val childId = installer.createSession(childParams)
+                installer.openSession(childId).use { child ->
+                    writeApk(child, apk)
+                }
+                parent.addChildSessionId(childId)
+                Log.i(TAG, "Added child $childId (${apk.name}) to parent $parentId")
+            }
+            val status = InstallResultReceiver.buildStatusIntent(appContext, parentId)
+            parent.commit(status.intentSender)
+            Log.i(TAG, "Committed multi-package staged session $parentId; applies on reboot")
+            return parentId
+        } catch (t: Throwable) {
+            Log.e(TAG, "Multi-package staging failed for parent $parentId, abandoning", t)
+            try { parent?.abandon() } catch (_: Throwable) {}
+            throw t
+        } finally {
+            try { parent?.close() } catch (_: Throwable) {}
+        }
+    }
+
+    // ---- shared helpers --------------------------------------------------------
+
+    private fun baseParams(staged: Boolean, multiPackage: Boolean, size: Long):
+        PackageInstaller.SessionParams {
+        return PackageInstaller.SessionParams(
+            PackageInstaller.SessionParams.MODE_FULL_INSTALL
+        ).apply {
+            setAppPackageName(null) // read package name from the APK
+            if (size > 0) setSize(size)
+
+            if (staged && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setStaged(true)
+            }
+            if (multiPackage && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setMultiPackage()
+            }
+            // On privileged builds, request no user confirmation.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+            }
+        }
+    }
+
+    private fun writeApk(session: PackageInstaller.Session, apk: File) {
         // "base.apk" is the conventional name for the base split.
-        session.openWrite("base.apk", 0, -1).use { out ->
-            apkStream.use { input ->
+        session.openWrite(apk.name.ifEmpty { "base.apk" }, 0, apk.length()).use { out ->
+            apk.inputStream().use { input ->
                 val buf = ByteArray(64 * 1024)
                 var read = input.read(buf)
                 while (read >= 0) {
@@ -99,10 +167,5 @@ object PackageInstallerHelper {
             }
             session.fsync(out)
         }
-    }
-
-    /** Minimal constant holder to avoid pulling extra deps for one value. */
-    private object PackageInfoCompat {
-        const val INSTALL_LOCATION_AUTO = 0
     }
 }

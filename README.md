@@ -22,13 +22,36 @@ the device must be rebooted manually.
 If you ever want an immediate, live install instead, pass `staged = false` to
 `installStaged()` — but that is explicitly *not* what this project does.
 
-Flow:
+Flow (Automotive / AAOS provisioning):
 
-1. `InstallActivity` picks an APK (or is opened on one via a `VIEW` intent).
-2. `PackageInstallerHelper` creates a `MODE_FULL_INSTALL` session with
-   `setStaged(true)` and, on API 31+, `USER_ACTION_NOT_REQUIRED`.
-3. The APK is streamed into `base.apk`, then `session.commit()` fires.
-4. `InstallResultReceiver` receives the commit status broadcast.
+1. APK files are dropped into a known folder on the vehicle (see **Drop folder**).
+2. On launch, `InstallActivity` scans that folder for `*.apk`.
+3. `PackageInstallerHelper` stages them: one APK -> a single staged session;
+   several APKs -> one **multi-package** staged parent session with a child per
+   APK, so they all apply together. On API 31+ `USER_ACTION_NOT_REQUIRED` is set.
+4. `session.commit()` fires; `InstallResultReceiver` receives the status.
+5. The packages install on the **next reboot** — tap **Reboot now** (or reboot
+   the vehicle) to apply.
+
+## Drop folder
+
+Default (no storage permission needed):
+
+```
+/sdcard/Android/data/com.example.appinstall/files/staged-apks/
+```
+
+Push one or more APKs there, then launch the app (or tap **Rescan folder**):
+
+```
+adb push app1.apk /sdcard/Android/data/com.example.appinstall/files/staged-apks/
+adb push app2.apk /sdcard/Android/data/com.example.appinstall/files/staged-apks/
+```
+
+The folder is created on first launch, so push after the app is installed. To
+use a provisioned vendor location instead, set `PackageInstallerHelper.apkDirOverride`
+to an absolute path (e.g. `/data/vendor/appinstall/apks`); that directory must
+already exist and be readable by this app's SELinux domain.
 
 ## The privilege requirement
 
@@ -78,8 +101,8 @@ silent staged path only activates on a privileged deployment.
 
 | File | Role |
 |------|------|
-| `InstallActivity.kt` | UI, APK picker, kicks off the install off-thread |
-| `PackageInstallerHelper.kt` | Creates the staged session, streams the APK, commits |
+| `InstallActivity.kt` | Scans the drop folder on launch and stages all APKs off-thread |
+| `PackageInstallerHelper.kt` | Drop-folder path, lists APKs, builds the (multi-package) staged session |
 | `InstallResultReceiver.kt` | Receives commit status; handles the unprivileged fallback |
 | `AndroidManifest.xml` | Declares `INSTALL_PACKAGES` / `DELETE_PACKAGES` / `REBOOT` and the receiver |
 | `system/etc/permissions/privapp-permissions-*.xml` | Privileged-permission whitelist for the system image |

@@ -2,84 +2,83 @@ package com.example.appinstall
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.example.appinstall.databinding.ActivityInstallBinding
 import java.util.concurrent.Executors
 
 /**
- * Entry point. Lets the user pick an APK (or opens on one via VIEW), then runs a
- * staged PackageInstaller session off the main thread.
+ * On launch, scans the APK drop directory and stages every APK found in a single
+ * (multi-package) staged session, so they all install on the next reboot.
+ *
+ * Drop directory (default): /sdcard/Android/data/com.example.appinstall/files/staged-apks/
+ * Override it via PackageInstallerHelper.apkDirOverride.
  */
 class InstallActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityInstallBinding
     private val io = Executors.newSingleThreadExecutor()
 
-    private val pickApk =
-        registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-            if (uri != null) startStagedInstall(uri) else log("No APK selected")
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityInstallBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        val dir = PackageInstallerHelper.stagedApkDir(this)
         binding.statusText.text = buildString {
             append("Privileged: ")
-            append(if (hasInstallPackagesPermission()) "YES (silent staged install)"
-                   else "NO (will fall back to user confirmation)")
+            append(if (hasInstallPackagesPermission()) "YES (silent staged install)\n"
+                   else "NO (will fall back to user confirmation)\n")
+            append("Drop folder:\n")
+            append(dir.absolutePath)
         }
 
-        binding.pickButton.setOnClickListener {
-            // "application/vnd.android.package-archive" is the APK MIME type.
-            pickApk.launch("application/vnd.android.package-archive")
-        }
-
+        binding.rescanButton.setOnClickListener { scanAndStage() }
         binding.rebootButton.setOnClickListener { rebootToApply() }
 
-        // If launched on an APK (VIEW action), install it directly.
-        intent?.data?.let { startStagedInstall(it) }
+        // Automatically stage whatever is already in the folder on launch.
+        scanAndStage()
     }
 
-    private fun startStagedInstall(apkUri: Uri) {
-        log("Starting staged install for $apkUri")
+    private fun scanAndStage() {
         io.execute {
             try {
-                val size = querySize(apkUri)
-                contentResolver.openInputStream(apkUri)?.use { stream ->
-                    val sessionId = PackageInstallerHelper.installStaged(
-                        context = this,
-                        apkStream = stream,
-                        apkSizeBytes = size,
-                        displayName = apkUri.lastPathSegment ?: "apk",
-                        staged = true,
-                    )
-                    runOnUiThread {
-                        log("Committed staged session $sessionId. " +
-                            "It will apply on the next reboot — tap 'Reboot now' to apply it.")
-                    }
-                } ?: runOnUiThread { log("Could not open APK stream") }
+                val apks = PackageInstallerHelper.listApks(this)
+                if (apks.isEmpty()) {
+                    val dir = PackageInstallerHelper.stagedApkDir(this)
+                    runOnUiThread { log("No APKs found in ${dir.absolutePath}") }
+                    return@execute
+                }
+
+                runOnUiThread {
+                    log("Found ${apks.size} APK(s):")
+                    apks.forEach { log("  - ${it.name} (${it.length()} bytes)") }
+                    log("Staging...")
+                }
+
+                val sessionId = PackageInstallerHelper.installFilesStaged(this, apks)
+
+                runOnUiThread {
+                    log("Committed staged session $sessionId for ${apks.size} APK(s).")
+                    log("They will install on the next reboot — tap 'Reboot now' to apply.")
+                }
             } catch (t: Throwable) {
-                Log.e(TAG, "Install error", t)
+                Log.e(TAG, "Staging error", t)
                 runOnUiThread {
                     log("Error: ${t.message}")
-                    Toast.makeText(this, "Install error: ${t.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Staging error: ${t.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
     /**
-     * Reboot the device to apply any committed staged sessions. PowerManager.reboot()
-     * requires the REBOOT permission, which only the privileged deployment holds; on an
-     * unprivileged build this throws SecurityException and the user must reboot manually.
+     * Reboot to apply the committed staged session(s). PowerManager.reboot() needs
+     * the privileged REBOOT permission; unprivileged, it throws and the user must
+     * reboot the vehicle manually.
      */
     private fun rebootToApply() {
         try {
@@ -88,14 +87,10 @@ class InstallActivity : AppCompatActivity() {
             pm.reboot("apply-staged-install")
         } catch (t: Throwable) {
             Log.e(TAG, "Reboot failed", t)
-            log("Reboot not permitted (${t.javaClass.simpleName}). Reboot the device manually to apply.")
+            log("Reboot not permitted (${t.javaClass.simpleName}). Reboot the vehicle manually to apply.")
             Toast.makeText(this, "Reboot manually to apply the staged install", Toast.LENGTH_LONG).show()
         }
     }
-
-    private fun querySize(uri: Uri): Long = try {
-        contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-    } catch (_: Throwable) { -1L }
 
     private fun hasInstallPackagesPermission(): Boolean =
         checkSelfPermission("android.permission.INSTALL_PACKAGES") ==
