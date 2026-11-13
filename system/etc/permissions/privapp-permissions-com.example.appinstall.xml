@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Place this file at:
+    /system/etc/permissions/   (or /product/etc/permissions/,
+                                 matching the partition the APK is installed to)
+
+  on a build where this app ships in the privileged system image
+  (/system/priv-app/AppInstall/ or /product/priv-app/AppInstall/).
+
+  Signature|privileged permissions are NOT granted to a priv-app unless they are
+  explicitly whitelisted here; otherwise the device may refuse to boot (in
+  enforcing mode) or silently deny the permission.
+-->
+<permissions>
+    <privapp-permissions package="com.example.appinstall">
+        <permission name="android.permission.INSTALL_PACKAGES" />
+        <permission name="android.permission.DELETE_PACKAGES" />
+        <permission name="android.permission.REBOOT" />
+    </privapp-permissions>
+</permissions>

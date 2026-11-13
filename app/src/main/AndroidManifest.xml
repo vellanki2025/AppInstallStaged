@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      System / privileged permissions.
+
+      INSTALL_PACKAGES is a signature|privileged permission: it is only granted
+      when this app is signed with the platform key, or installed into the
+      privileged system partition (/system/priv-app or /product/priv-app) and
+      whitelisted via a privapp-permissions XML. With it held, PackageInstaller
+      commits run WITHOUT the system install-confirmation UI (silent install).
+
+      A normal 3rd-party app CANNOT get INSTALL_PACKAGES. It would instead use
+      REQUEST_INSTALL_PACKAGES, which still shows the user a confirmation dialog.
+      Both are declared so the same build works in either deployment, but the
+      staged, silent path only activates when INSTALL_PACKAGES is actually held.
+    -->
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Needed to delete/replace existing packages silently. -->
+    <uses-permission android:name="android.permission.DELETE_PACKAGES"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Reading the APK file the user picks. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!-- See all installed packages (to report status, verify replace, etc.). -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!--
+      A staged session only applies on reboot. REBOOT is a signature|privileged
+      permission, held only by the platform-signed / priv-app deployment, and
+      lets this app trigger that reboot itself instead of waiting for the user.
+    -->
+    <uses-permission android:name="android.permission.REBOOT"
+        tools:ignore="ProtectedPermissions" />
+
+    <application
+        android:allowBackup="true"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AppInstall">
+
+        <activity
+            android:name=".InstallActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Allow being opened on an APK file as a VIEW target. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
+        </activity>
+
+        <!-- Receives per-session commit status from PackageInstaller. -->
+        <receiver
+            android:name=".InstallResultReceiver"
+            android:exported="true" />
+    </application>
+</manifest>
