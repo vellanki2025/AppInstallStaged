@@ -4,12 +4,34 @@ A minimal Android app that installs an APK through a **staged**
 `PackageInstaller` session. Built on the assumption that it runs with
 **system privilege**, so the install is committed silently (no confirmation UI).
 
+## Background
+
+This app is the final step of a provisioning pipeline, not the whole thing:
+
+- **The APKs are already downloaded.** Some upstream component (an OTA/fleet
+  agent, a provisioning service, a USB load, etc.) fetches the packages and
+  places them in the drop folder. This app does **not** download anything; it
+  only stages whatever files are already present.
+- **The APKs are already signed and trusted.** They are expected to be signed
+  with a key the platform accepts (typically the platform/OEM key). This app
+  does not verify or re-sign them — signature enforcement is the platform's job
+  at install time.
+- **No runtime permissions are requested or granted.** Because the app runs
+  system-privileged (platform-signed or in `priv-app` with the whitelist) and
+  reads from its own app-specific directory, there are no runtime permission
+  prompts and nothing for a user to approve. `INSTALL_PACKAGES`, `DELETE_PACKAGES`,
+  and `REBOOT` are install-time privileged grants, not user-facing dialogs, and
+  the drop folder needs no storage permission at all.
+
+In short: packages arrive pre-downloaded and pre-signed, and this app silently
+stages them for the next reboot with zero user interaction.
+
 ## What "staged session" means here
 
 A session created with `SessionParams.setStaged(true)` is written to disk and
 committed to apply **atomically on the next reboot**. Staged sessions are the
 same mechanism Android uses for APEX and system module updates, and they require
-a privileged caller. See `PackageInstallerHelper.installStaged()`.
+a privileged caller. See `PackageInstallerHelper.installFilesStaged()`.
 
 **This is intentional here: the install does not go live immediately.** A
 successful commit means the session is verified and queued; the package only
@@ -19,8 +41,9 @@ button (`PowerManager.reboot()`, which needs the privileged `REBOOT` permission)
 to apply it on demand. On an unprivileged build that reboot call is denied and
 the device must be rebooted manually.
 
-If you ever want an immediate, live install instead, pass `staged = false` to
-`installStaged()` — but that is explicitly *not* what this project does.
+If you ever want an immediate, live install instead, drop the `setStaged(true)`
+call in `PackageInstallerHelper.baseParams()` — but that is explicitly *not* what
+this project does.
 
 Flow (Automotive / AAOS provisioning):
 
